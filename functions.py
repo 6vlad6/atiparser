@@ -3,6 +3,8 @@ import time
 
 import openpyxl
 
+import json
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -20,10 +22,10 @@ def create_excel_file(directory, filename):
         "№ пункта", "название компании", "статус (грузовладелец или грузовладелец-перевозчик)", "код ати", "расстояние",
         "город откуда компания", "контакт (имя и тел)", "наименование груза", "вес, объем",
         "габариты если есть / упаковка, количество если есть", "город загрузки, дата", "город разгрузки", "цена",
-        "ставка", "дни"
+        "ставка", "дни", "груз", "компания"
     ]
 
-    columns_code = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"]
+    columns_code = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
 
     try:
         # Создание пути к файлу
@@ -50,13 +52,14 @@ def load_to_excel(pathfile, data):
     """
     Функция добавляет строчку в .xlsx-файл
     :param pathfile: путь к файлу
-    :param data: строчка
+    :param data: массив данных
     :return:
     """
 
     workbook = openpyxl.load_workbook(pathfile)
     sheet = workbook.active
-    sheet.append(data)
+    for i in data:
+        sheet.append(i)
 
     workbook.save(pathfile)
 
@@ -118,6 +121,7 @@ def login_ati(driver, username, password):
         driver.switch_to.default_content()
 
     except Exception as e:
+        print("Не получилось войти в аккаунт")
         print(str(e))
 
 
@@ -135,11 +139,11 @@ def check_code_in_file(file_path, code):
                     return True
         return False
     except Exception as e:
-        print("ошибка в чек код ин файл")
+        print("Не удалось прочитать файл с обработанными кодами")
         print(str(e))
 
 
-def add_code_to_file(file_path, code):
+def add_codes_to_file(file_path, codes):
     """
     Функция добавляет обработанный груз в файл
     :param file_path: путь к файлу
@@ -147,44 +151,167 @@ def add_code_to_file(file_path, code):
     :return:
     """
     try:
-        with open(file_path, 'a+') as file:
-            file.seek(0)
-            first_char = file.read(1)
-            if not first_char:
-                file.write(code)
-            else:
-                file.write('\n' + code)
+        with open(file_path, "a") as f:
+            if os.path.getsize(file_path) > 0:
+                f.write("\n")
+            for line in codes:
+                f.write(line + "\n")
     except Exception as e:
-        print("ошибка в эдд код ту файл")
+        print("Не получилось добавить код груза в файл")
         print(str(e))
 
 
-def get_load_info(driver, link, file, worked_loads_file):
+def get_load_info(driver, links, file, worked_loads_file):
     """
     Функция собирает информацию по грузу
     :param driver: драйвер
-    :param link: ссылка на груз
+    :param links: массив ссылок на груз
     :param file: .xlsx файл для загрузки туда данных
     :param worked_loads_file: .txt файл отработанных грузов
     :return:
     """
     try:
-        driver.get(link)
+        k = 1
+        all_data = []
+        all_codes = []
+        for link in links:
+            driver.get(link)
 
-        code = str(driver.current_url).split("/")[-1]  # код ати
-        if not check_code_in_file(worked_loads_file, code):
-            name = driver.find_element(By.CLASS_NAME, "sc-htoDjs.dPPpWm").text
-            start_location = driver.find_elements(By.CLASS_NAME, "locationFullName")[0].text
-            end_location = driver.find_elements(By.CLASS_NAME, "locationFullName")[1].text
-            load_date = driver.find_element(By.CLASS_NAME, "dateTime").text
+            company_name = "-"
+            status = "-"
+            ati_code = "-"
+            distance = "-"
+            company_hometown = "-"
+            contact = "-"
+            load_name = "-"
+            weight_volume = "-/-"
+            dimensions = "-"
+            start_location = "-"
+            load_date = "-"
+            end_location = "-"
+            price = "-"
+            rate = "-"
+            company_days = ""
+            load_link = "-"
+            company_link = "-"
 
-            load_to_excel(file, ["-", "-", "-", code, "-", "-", "-", name, "-", "-", f'{start_location}, {load_date}', end_location,
-                                 "-", "-", "-"])
+            try:  # получение дистанции, габаритов, вес/объем, контактов
+                json_data = driver.find_element(By.ID, "__NEXT_DATA__").get_attribute("innerHTML")
+                # json_data = script_content.split('<script id="__NEXT_DATA__" type="application/json">')[1].split('</script>')[0]
 
-            add_code_to_file(worked_loads_file, code)
+                data = json.loads(json_data)
 
-        else:
-            return False
+                ati_code = str(data['props']['pageProps']['load']['firmInfo']['id'])
+                try:
+                    firm_status = str(data['props']['pageProps']['load']['firmInfo']['firmType'])
+
+                    if firm_status == "Грузовладелец-перевозчик":
+                        status = "гр/вл-пер"
+                    elif firm_status == "Грузовладелец":
+                        status = "грузовл"
+                except:
+                    pass
+
+                if (not check_code_in_file(worked_loads_file, ati_code)) and status != "-":
+
+                    try:
+                        distance = str(data['props']['pageProps']['load']['distance'])
+                    except:
+                        pass
+
+                    try:
+                        dimensions = f"{str(data['props']['pageProps']['load']['cargo']['size']['length'])}x" \
+                                     f"{str(data['props']['pageProps']['load']['cargo']['size']['width'])}x" \
+                                     f"{str(data['props']['pageProps']['load']['cargo']['size']['height'])}"
+                    except:
+                        pass
+
+                    try:
+                        weight_volume = f"{str(data['props']['pageProps']['load']['cargo']['weight'])} / {str(data['props']['pageProps']['load']['cargo']['volume'])}"
+                    except:
+                        pass
+
+                    try:
+                        author_name = str(data['props']['pageProps']['load']['firmInfo']['contacts'][0]['name'])
+                        first_phone = str(data['props']['pageProps']['load']['firmInfo']['contacts'][0]['telephone'])
+                        email = str(data['props']['pageProps']['load']['firmInfo']['contacts'][0]['email'])
+                        second_phone = str(data['props']['pageProps']['load']['firmInfo']['contacts'][0]['mobile'])
+
+                        contact = f"{str(author_name)}; {str(first_phone)}; {str(second_phone)}; {str(email)}"
+                    except:
+                        pass
+
+                    try:
+                        company_hometown = str(data['props']['pageProps']['load']['firmInfo']['location']['fullName'])
+                    except:
+                        pass
+
+                    try:
+                        company_name = str(data['props']['pageProps']['load']['firmInfo']['fullFirmName'])
+                    except:
+                        pass
+
+                    try:
+                        load_name = str(driver.find_element(By.CLASS_NAME, "sc-htoDjs.dPPpWm").text)
+                    except:
+                        pass
+
+                    try:
+                        start_location = str(driver.find_elements(By.CLASS_NAME, "locationFullName")[0].text)
+                    except:
+                        pass
+
+                    try:
+                        end_location = str(driver.find_elements(By.CLASS_NAME, "locationFullName")[1].text)
+                    except:
+                        pass
+
+                    try:
+                        load_date = str(driver.find_element(By.CLASS_NAME, "dateTime").text)
+                    except:
+                        pass
+
+                    try:
+                        price = str(data['props']['pageProps']['load']['payment']['sumWithoutNDS'])
+                    except:
+                        pass
+
+                    try:
+                        rate = str(driver.find_element(By.CLASS_NAME, "load-price-per-km").find_element(By.TAG_NAME, "span").text)
+                    except:
+                        pass
+
+                    load_link = str(driver.current_url)
+                    company_link = f"https://ati.su/firms/{ati_code}/info"
+
+                    driver.get(f"https://ati.su/firms/{ati_code}/rating")
+
+                    try:
+                        time.sleep(10)
+                        full_date_text = driver.find_element(By.CLASS_NAME, "green__cTf7").text
+                        company_days = int(full_date_text.split("(")[-1].split(")")[0][:-3].strip())
+                    except:
+                        pass
+
+                    all_codes.append(ati_code)
+                    all_data.append([k, company_name, status, ati_code, distance, company_hometown, contact, load_name,
+                                         weight_volume, dimensions, f'{start_location}, {load_date}', end_location, price,
+                                         rate, company_days, load_link, company_link])
+
+                    if links.index(link) % 10 == 0 or links.index(link) == len(links) -1:
+                        load_to_excel(file, all_data)
+                        add_codes_to_file(worked_loads_file, all_codes)
+                        all_data = []
+
+                    k += 1
+
+                else:
+                    return False
+
+            except Exception as e:
+                print(str(e))
+                pass
+
     except Exception as e:
         print("ошибка в гет инфо")
         print(str(e))
@@ -198,28 +325,8 @@ def get_loads_on_page(driver):
     """
     wait = WebDriverWait(driver, 15)
     loads_links = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, "XfMtd.fmVZ6")))
-    # loads_links = driver.find_elements(By.CLASS_NAME, "XfMtd.fmVZ6")
     loads_on_page = []
     for link in loads_links:
         loads_on_page.append(link.get_attribute("href"))
 
     return loads_on_page
-
-
-def next_pagination_page(driver):
-    """
-    Функция нажимает на кнопку пагинации и открывает следующую страницу
-    :param driver: драйвер
-    :return: False - следующая страница недоступна, True - доступна
-    """
-    pagination_div = driver.find_element(By.CLASS_NAME, "SearchResults_actionsContainer__Y2RRQ.SearchResults_actionsContainer_bottom__3dbiy")
-
-    try:
-        btn = pagination_div.find_element(By.CLASS_NAME, "next_FJXnH hide_ilkOM.Pagination_nextTipClassName__tg_Y0.Pagination_tipInactive__aTL95")
-        return False
-
-    except:
-        pagination_button = pagination_div.find_element(By.CLASS_NAME, "next_FJXnH.Pagination_nextTipClassName__tg_Y0")
-        pagination_button.click()
-
-        return True

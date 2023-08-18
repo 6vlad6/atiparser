@@ -3,10 +3,10 @@ import time
 
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog
 
-from functions import create_excel_file, load_to_excel, create_driver, login_ati, get_loads_on_page,\
-    next_pagination_page, get_load_info
+from functions import create_excel_file, load_to_excel, create_driver, login_ati, get_loads_on_page, get_load_info
 
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 
 base_url = "https://loads.ati.su/"
@@ -117,13 +117,10 @@ class App(QWidget):
 
             driver = create_driver(base_url)
 
-            # login_ati(driver, login, password)
-
             choose_start = driver.find_element(By.CLASS_NAME, "glz-link.glz-is-medium")  # кнопка раскрытия списка
             choose_start.click()
 
             list_div = driver.find_element(By.CLASS_NAME, "glz-dropdown.glz-is-bottom-right")
-            # print(list_div.get_attribute("innerHTML"))
             li_elems_len = len(list_div.find_element(By.TAG_NAME, "ul").find_elements(By.TAG_NAME, "li"))
 
             btn_to_close = driver.find_elements(By.CLASS_NAME, "glz-dropdown-toggle")[1]  # кнопка для закрытия списка
@@ -131,7 +128,7 @@ class App(QWidget):
 
             loads = []
 
-            for i in range(li_elems_len-24):
+            for i in range(li_elems_len-25):  # проходим для каждого региона отправки
 
                 try:
                     time.sleep(5)
@@ -150,35 +147,49 @@ class App(QWidget):
                     btn_show_loads.click()  # показать все грузы по региону
                     time.sleep(5)
 
-                    new_links = get_loads_on_page(driver)
-                    loads.extend(new_links)
-                    # while True:
-                    #     # нажимаем на кнопку пагинации
-                    #     next_page_available = next_pagination_page(driver)
+                    new_links = get_loads_on_page(driver)  # получение новых грузов на странице
+                    loads.extend(new_links)  # добавление новых грузов в общий массив грузов
+
+                    # while True:  # переход по страницам пагинации
                     #
-                    #     if next_page_available:
-                    #         # получаем все ссылки на странице
-                    #         new_links = get_loads_on_page(driver)
-                    #         # добавляем новые ссылки в список всех ссылок
-                    #         loads.extend(new_links)
-                    #         print(len(loads))
-                    #     else:
-                    #         print("Пагинация закончилась, надо перейти в следующий регион")
+                    #     try:  # поиск последней страницы пагинации - если блок есть, то и она есть
+                    #         pages_count_block = driver.find_element(By.CLASS_NAME, "total_5B9k1")
+                    #         pages_count = str(pages_count_block.text).split()[-1]
+                    #
+                    #         for page in range(2, int(pages_count)+1):
+                    #             form_to_write = driver.find_element(By.CLASS_NAME, "glz-input.input_mEUzW")
+                    #             input_block = form_to_write.find_element(By.TAG_NAME, "input")
+                    #
+                    #             text_in_field = len(str(input_block.get_attribute("value")))
+                    #             for digit in range(int(str(text_in_field))+1):
+                    #                 input_block.send_keys(Keys.BACKSPACE)
+                    #             input_block.send_keys(page)  # вводим номер страницы
+                    #             input_block.send_keys(Keys.RETURN)  # нажимаем клавишу Enter
+                    #
+                    #             time.sleep(5)
+                    #             new_links = get_loads_on_page(driver)  # получение новых грузов на странице
+                    #             loads.extend(new_links)  # добавление новых грузов в общий массив грузов
+                    #
+                    #     except Exception as e:
+                    #         print(str(e))
                     #         break
-                    #     driver.execute_script("window.scrollTo(0, 0);")
-                    print(len(loads))
+
                     driver.execute_script("window.scrollTo(0, 0);")
                     time.sleep(3)
 
                 except Exception as e:
                     print(str(e))
 
-            for load in loads:
-                get_load_info(driver, load, res, worked_loads_file)
+            login_ati(driver, login, password)
+            time.sleep(60)
+
+            get_load_info(driver, loads, res, worked_loads_file)
 
         else:
             self.output_text.append('Файл не создан')
             self.output_text.append('Работа завершилась из-за ошибки при создании файла')
+
+        self.output_text.append('Работа завершилась')
 
 
 if __name__ == '__main__':
